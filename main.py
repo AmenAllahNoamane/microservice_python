@@ -57,6 +57,7 @@ async def upload_file(file: UploadFile = File(...)):
 
         # LLM
         llm = classify_document(ocr["clean_text"])
+        print(llm)
         if not llm.get("succes"):
             return JSONResponse(status_code=500, content={"succes": False, "erreur": llm.get("erreur")})
 
