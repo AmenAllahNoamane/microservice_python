@@ -19,6 +19,7 @@ RÈGLES RÉSUMÉ :
 - Le résumé doit être en 3 à 5 phrases maximum, pas une simple phrase.
 - Tu n’inventes rien : si une information est absente, tu ne la mentionnes pas.
 
+
 """
 
 PROMPT = """Analyse ce texte et identifie le type du document.

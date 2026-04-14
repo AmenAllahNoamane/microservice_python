@@ -1,6 +1,8 @@
 # Pipeline final : Groq (classification) + Gemini (extraction)
 from services.classifier import classify
-from services.extractor import extract
+#from services.extractor import extract
+#from services.extractor2 import extract
+from services.extractor3 import extract
 def classify_document(texte: str) -> dict:
     """
     Pipeline 2 LLM :
@@ -28,6 +30,7 @@ def classify_document(texte: str) -> dict:
         return {"succes": False, "erreur": f"Extraction échouée : {step2.get('erreur')}"}
 
     extraction           = step2["data"]
+    analyse              = extraction.get("analyse_preliminaire")
     bc_fields            = extraction.get("bc_fields", {})
     bc_lines             = extraction.get("bc_lines", [])
     score_extraction     = float(extraction.get("score_extraction", 0.5))
@@ -64,6 +67,7 @@ def classify_document(texte: str) -> dict:
                 "champs_remplis":      champs_non_null,
                 "champs_total":        total_champs,
             },
+            "analyse":analyse,
             "bc_fields": bc_fields,
             "bc_lines":  bc_lines,
         }

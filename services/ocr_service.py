@@ -96,24 +96,29 @@ def extract_text(file_path):
     ext = os.path.splitext(file_path)[1].lower()
 
     # IMAGE → OCR
+    
     if ext in [".jpg", ".jpeg", ".png", ".jfif"]:
         print(" Image détectée => OCR docTR")
         method = "doctr"
         raw, score_ocr, nb_words = extract_text_doctr(file_path)
         
-
-    # PDF
-    if ext == ".pdf":
+    elif ext == ".pdf":
         if is_pdf_native(file_path):
-            print(" PDF natif détecté => pdfplumber")
-            method = "pdfplumber"
-            raw, score_ocr, nb_words = extract_text_pdf(file_path)
+         print("PDF natif détecté => pdfplumber")
+         method = "pdfplumber"
+         raw, score_ocr, nb_words = extract_text_pdf(file_path)
         else:
-            print(" PDF scanné détecté => OCR docTR")
-            method = "doctr"
-            raw, score_ocr, nb_words = extract_text_doctr(file_path)
+         print("PDF scanné détecté => OCR docTR")
+         method = "doctr"
+         raw, score_ocr, nb_words = extract_text_doctr(file_path)
+
     else:
         raise ValueError(f"Format non supporté : {ext}")
+
+
+
+    
+
     
 
     #  Nettoyage
