@@ -86,7 +86,7 @@ async def upload_file(file: UploadFile = File(...)):
                 "resume":           metadata["resume"],
             },
             "business_central": {
-                "analyse:":classification["analyse"],
+                #"analyse:":classification["analyse"],
                 "bc_fields": classification["bc_fields"],
                 "bc_lines":  classification["bc_lines"],
             },

@@ -30,7 +30,7 @@ def classify_document(texte: str) -> dict:
         return {"succes": False, "erreur": f"Extraction échouée : {step2.get('erreur')}"}
 
     extraction           = step2["data"]
-    analyse              = extraction.get("analyse_preliminaire")
+    analyse              = extraction.pop("analyse_preliminaire",None)
     bc_fields            = extraction.get("bc_fields", {})
     bc_lines             = extraction.get("bc_lines", [])
     score_extraction     = float(extraction.get("score_extraction", 0.5))

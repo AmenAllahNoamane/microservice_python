@@ -12,7 +12,7 @@ Analyse le texte OCR d'un document commercial et retourne UNIQUEMENT un objet JS
 
 RÈGLES ABSOLUES :
 1. Tu n'inventes RIEN — si un champ n'est pas dans le texte, tu mets null.
-2. Les dates doivent être au format JJ/MM/AAAA.
+2. Les dates doivent être retournées STRICTEMENT au format YYYY-MM-DD..
 3. Extrais TOUTES les lignes d'articles présentes.
 4. Détecte automatiquement la devise du document en code ISO (EUR, USD, TND...).
 5. Un numéro de document (commande, facture...) n'est JAMAIS un vendorNumber ou customerNumber.
@@ -41,8 +41,8 @@ Retourne ce JSON :
     "vendorInvoiceNumber": "N° facture EXACT ou null",
     "vendorNumber": "N° fournisseur ou null",
     "vendorName": "Nom fournisseur EXACT ou null",
-    "invoiceDate": "JJ/MM/AAAA ou null",
-    "dueDate": "JJ/MM/AAAA ou null",
+    "invoiceDate": "YYYY-MM-DD ou null",
+    "dueDate": "YYYY-MM-DD ou null",
     "currencyCode": "TND|EUR|USD|... ou null",
     "totalAmountExcludingTax":0.0,
     "totalTaxAmount":0.0,
@@ -77,8 +77,8 @@ Retourne ce JSON :
     "externalDocumentNumber": "N° document externe ou null",
     "customerNumber": "N° client ou null",
     "customerName": "Nom EXACT du client ou null",
-    "invoiceDate": "JJ/MM/AAAA ou null",
-    "dueDate": "JJ/MM/AAAA ou null",
+    "invoiceDate": "YYYY-MM-DD ou null",
+    "dueDate": "YYYY-MM-DD ou null",
     "currencyCode": "TND|EUR|USD|... ou null",
     "totalAmountExcludingTax": 0.0,
     "totalTaxAmount":  0.0,
@@ -113,7 +113,7 @@ Retourne ce JSON :
     "vendorCreditMemoNumber": "N° avoir EXACT ou null",
     "vendorNumber": "N° fournisseur ou null",
     "vendorName": "Nom fournisseur EXACT ou null",
-    "creditMemoDate": "JJ/MM/AAAA ou null",
+    "creditMemoDate": "YYYY-MM-DD ou null",
     "invoiceNumber": "N° facture origine ou null",
     "currencyCode": "TND|EUR|USD ou null",
     "totalAmountExcludingTax": 0.0,
@@ -147,8 +147,8 @@ Retourne ce JSON :
     "externalDocumentNumber": "N° commande ou null",
     "vendorNumber": "N° fournisseur ou null",
     "vendorName": "Nom fournisseur ou null",
-    "orderDate": "JJ/MM/AAAA ou null",
-    "requestedReceiptDate": "Date livraison souhaitée JJ/MM/AAAA ou null",
+    "orderDate": "YYYY-MM-DD ou null",
+    "requestedReceiptDate": "Date livraison souhaitée YYYY-MM-DD ou null",
     "currencyCode": "TND|EUR|USD ou null",
     "totalAmountExcludingTax": 0.0,
     "totalTaxAmount":0.0,
@@ -189,8 +189,8 @@ Retourne ce JSON :
     "externalDocumentNumber": "N° commande ou null",
     "customerNumber": "N° client ou null",
     "customerName": "Nom client ou null",
-    "orderDate": "JJ/MM/AAAA ou null",
-    "requestedDeliveryDate": "Date livraison JJ/MM/AAAA ou null",
+    "orderDate": "YYYY-MM-DD ou null",
+    "requestedDeliveryDate": "Date livraison YYYY-MM-DD ou null",
     "currencyCode": "TND|EUR|USD ou null",
     "totalAmountExcludingTax":0.0,
     "totalTaxAmount": 0.0,
@@ -229,8 +229,8 @@ Retourne ce JSON :
     "documentNumber": "N° devis ou null",
     "customerNumber": "N° client ou null",
     "customerName": "Nom client ou null",
-    "documentDate": "JJ/MM/AAAA ou null",
-    "validUntilDate": "Date validité JJ/MM/AAAA ou null",
+    "documentDate": "YYYY-MM-DD ou null",
+    "validUntilDate": "Date validité YYYY-MM-DD ou null",
     "currencyCode": "TND|EUR|USD ou null",
     "totalAmountExcludingTax": 0.0,
     "totalTaxAmount": 0.0,
@@ -298,6 +298,7 @@ TEXTE DU DOCUMENT :
         # Plus besoin de Regex ! response.text est garanti d'être un JSON textuel
         raw = response.text.strip()
         result = json.loads(raw)
+        #print(result)
 
         # Normaliser score_extraction
         if "score_extraction" in result and result["score_extraction"] is not None:
