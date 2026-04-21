@@ -35,20 +35,6 @@ def classify_document(texte: str) -> dict:
     bc_lines             = extraction.get("bc_lines", [])
     score_extraction     = float(extraction.get("score_extraction", 0.5))
 
-    #  Score global (calculé côté Python) 
-    champs_non_null = sum(
-        1 for v in bc_fields.values()
-        if v is not None and v != [] and v != [None, None]
-    )
-    total_champs      = len(bc_fields) if bc_fields else 1
-    score_remplissage = champs_non_null / total_champs
-
-    score_global = round(
-        (0.4 * score_extraction) +
-        (0.3 * score_classification) +
-        (0.3 * score_remplissage),
-        4
-    )
 
     # ── Résultat final (structure identique à gimi.py) ──
     return {
@@ -63,12 +49,10 @@ def classify_document(texte: str) -> dict:
                 "resume":              resume,
                 "score_classification": round(score_classification, 4),
                 "score_extraction":    round(score_extraction, 4),
-                "score_global":        score_global,
-                "champs_remplis":      champs_non_null,
-                "champs_total":        total_champs,
             },
             "analyse":analyse,
             "bc_fields": bc_fields,
             "bc_lines":  bc_lines,
         }
-    }
+        }
+    

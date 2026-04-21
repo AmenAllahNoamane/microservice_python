@@ -6,7 +6,12 @@ import tempfile, shutil, os
 from services.ocr_service import extract_text, get_model
 from services.llm_service import classify_document
 from services.classifier import classify
+from services.validator import compute_score
 
+
+# ─────────────────────────────────────────────
+# LIFESPAN
+# ─────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print(">>> Chargement docTR...")
@@ -16,14 +21,17 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="GED OCR Microservice",
-    description="OCR intelligent + Classification LLM (Groq + Gemini) pour Business Central",
-    version="3.0",
+    description="OCR intelligent + Classification LLM + Scoring GED V4",
+    version="4.0",
     lifespan=lifespan
 )
 
 ALLOWED_EXTENSIONS = ['.pdf', '.jpg', '.jpeg', '.png', '.jfif']
 
 
+# ─────────────────────────────────────────────
+# TEMP FILE
+# ─────────────────────────────────────────────
 def _save_temp(file: UploadFile) -> str:
     ext = os.path.splitext(file.filename)[1].lower()
     with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
@@ -31,139 +39,286 @@ def _save_temp(file: UploadFile) -> str:
         return tmp.name
 
 
-def _get_validation_status(score_global: float) -> dict:
+# ─────────────────────────────────────────────
+# VALIDATION STATUS
+# ─────────────────────────────────────────────
+def _get_validation_status(score_global, ocr_score, validator_result):
+
+    # OCR trop faible → rejet immédiat
+    if ocr_score < 0.5:
+        return {
+            "statut":  "REJETE",
+            "action":  "CORRECTION_MANUELLE",
+            "couleur": "rouge",
+            "message": "OCR trop faible — document non fiable"
+        }
+
+    # Lignes manquantes → rejet
+    if "no_lines_extracted" in validator_result["flags"]:
+        return {
+            "statut":  "REJETE",
+            "action":  "CORRECTION_MANUELLE",
+            "couleur": "rouge",
+            "message": "Aucune ligne extraite — correction obligatoire"
+        }
+
+    # Champs obligatoires incomplets → vérification manuelle
+    champs_manquants = [f for f in validator_result["flags"] if f.startswith("manquant:")]
+    if champs_manquants:
+        return {
+            "statut":  "EN_ATTENTE",
+            "action":  "VERIFICATION_REQUISE",
+            "couleur": "orange",
+            "message": "Champs manquants détectés — vérification requise"
+        }
+
+    # Score normal
     if score_global >= 0.90:
-        return {"statut": "VALIDE",      "action": "VALIDATION_AUTO",    "couleur": "vert",   "message": "Document validé automatiquement"}
+        return {
+            "statut":  "VALIDE",
+            "action":  "VALIDATION_AUTO",
+            "couleur": "vert",
+            "message": "Document validé automatiquement"
+        }
     elif score_global >= 0.70:
-        return {"statut": "EN_ATTENTE",  "action": "VERIFICATION_REQUISE","couleur": "orange", "message": "Vérification manuelle recommandée"}
+        return {
+            "statut":  "EN_ATTENTE",
+            "action":  "VERIFICATION_REQUISE",
+            "couleur": "orange",
+            "message": "Vérification manuelle recommandée"
+        }
     else:
-        return {"statut": "EN_ATTENTE",  "action": "CORRECTION_MANUELLE", "couleur": "rouge",  "message": "Correction manuelle obligatoire"}
+        return {
+            "statut":  "REJETE",
+            "action":  "CORRECTION_MANUELLE",
+            "couleur": "rouge",
+            "message": "Score insuffisant — correction obligatoire"
+        }
 
 
-# ── POST /upload — pipeline complet ──────────────────────
+# ─────────────────────────────────────────────
+# SMART PENALTY SYSTEM
+# ─────────────────────────────────────────────
 
-@app.post("/upload", summary="Pipeline complet : OCR + Classification + Extraction BC")
+# Champs critiques — pénalité forte si manquants
+CHAMPS_CRITIQUES = {
+    "customerName",
+    "vendorName",
+    "invoiceDate",
+    "orderDate",
+    "creditMemoDate",
+    "documentDate",
+    "totalAmountIncludingTax",
+}
+
+# Champs optionnels — pénalité légère si manquants
+CHAMPS_OPTIONNELS_PENALITE = {
+    "dueDate",
+    "currencyCode",
+    "discountAmount",
+}
+
+
+def _apply_penalty(score_global, validator_result):
+    penalty = 0.0
+
+    manquants = [
+        f.replace("manquant:", "")
+        for f in validator_result["flags"]
+        if f.startswith("manquant:")
+    ]
+
+    missing_critiques = 0
+
+    for champ in manquants:
+        if champ in CHAMPS_CRITIQUES:
+            penalty           += 0.10
+            missing_critiques += 1
+        elif champ in CHAMPS_OPTIONNELS_PENALITE:
+            penalty += 0.03
+
+    # Hard stop — 2 champs critiques manquants → score forcé à 0.40
+    if missing_critiques >= 2:
+        return 0.40
+
+    # Lignes très faibles → score forcé à 0.35
+    if validator_result["breakdown"]["lines_score"] < 0.5:
+        return 0.35
+
+    return round(max(0.0, min(1.0, score_global - penalty)), 4)
+
+
+# ─────────────────────────────────────────────
+# MAIN PIPELINE
+# ─────────────────────────────────────────────
+@app.post("/upload", summary="Pipeline complet OCR + LLM + Scoring")
 async def upload_file(file: UploadFile = File(...)):
+
     ext = os.path.splitext(file.filename)[1].lower()
     if ext not in ALLOWED_EXTENSIONS:
-        return JSONResponse(status_code=400, content={"succes": False, "erreur": f"Format non accepté : {ext}"})
+        return JSONResponse(status_code=400, content={
+            "succes": False,
+            "erreur": f"Format non accepté : {ext}"
+        })
 
     tmp_path = _save_temp(file)
+
     try:
-        # OCR
+        # ── OCR ──
         ocr = extract_text(tmp_path)
         if not ocr["is_readable"]:
-            return JSONResponse(status_code=422, content={"succes": False, "erreur": "Document illisible ou vide", "score_ocr": ocr["score_ocr"]})
+            return JSONResponse(status_code=422, content={
+                "succes":    False,
+                "erreur":    "Document illisible ou vide",
+                "score_ocr": ocr["score_ocr"]
+            })
 
-        # LLM
+        # ── LLM ──
         llm = classify_document(ocr["clean_text"])
-       # print(llm)
         if not llm.get("succes"):
-            return JSONResponse(status_code=500, content={"succes": False, "erreur": llm.get("erreur")})
+            return JSONResponse(status_code=500, content={
+                "succes": False,
+                "erreur": llm.get("erreur")
+            })
 
-        classification   = llm["classification"]
-        metadata         = classification["metadata"]
-        score_global_llm = metadata["score_global"]
+        classification       = llm["classification"]
+        metadata             = classification["metadata"]
+        bc_fields            = classification.get("bc_fields", {})
+        bc_lines             = classification.get("bc_lines", [])
+        type_document        = metadata.get("type_document", "Autre")
+        score_classification = float(metadata.get("score_classification", 0.5))
 
-        # Score global final (OCR inclus)
-        score_global = round(
-            (0.5 * ocr["score_ocr"]) +
-            (0.3 * metadata["score_extraction"]) +
-            (0.2 * metadata["score_classification"]),
-            4
+        # ── SCORING ──
+        validator_result = compute_score(
+            type_document        = type_document,
+            bc_fields            = bc_fields,
+            bc_lines             = bc_lines,
+            raw_text             = ocr["clean_text"],
+            score_ocr            = ocr["score_ocr"],
+            score_classification = score_classification,
         )
-        validation = _get_validation_status(score_global)
 
+        # ── PENALTY ──
+        score_global = _apply_penalty(
+            validator_result["score_global"],
+            validator_result
+        )
+
+        # ── VALIDATION STATUS ──
+        validation = _get_validation_status(
+            score_global,
+            ocr["score_ocr"],
+            validator_result
+        )
+
+        # ── WARNINGS ──
+        warnings = []
+        if validator_result["breakdown"]["lines_score"] < 1.0:
+            warnings.append("Certaines lignes sont incomplètes")
+        if validator_result["breakdown"]["coherence_montants"] < 0.7:
+            warnings.append("Incohérence détectée dans les montants")
+        if any("montant_absent_ocr" in f for f in validator_result["flags"]):
+            warnings.append("Montant extrait absent du texte OCR — possible hallucination")
+
+        # ── RÉPONSE ──
         return JSONResponse(content={
-            "succes": True,
+            "succes":  True,
             "fichier": file.filename,
+
             "metadata": {
-                "type_document":    metadata["type_document"],
-                "bc_entity":        metadata["bc_entity"],
-                "categorie":        metadata["categorie"],
-                "langue":           metadata["langue"],
-                "pays":             metadata["pays"],
-                "resume":           metadata["resume"],
+                "type_document": metadata.get("type_document"),
+                "bc_entity":     metadata.get("bc_entity"),
+                "categorie":     metadata.get("categorie"),
+                "langue":        metadata.get("langue"),
+                "pays":          metadata.get("pays"),
+                "resume":        metadata.get("resume"),
             },
+
             "business_central": {
-                #"analyse:":classification["analyse"],
-                "bc_fields": classification["bc_fields"],
-                "bc_lines":  classification["bc_lines"],
+                "bc_fields": bc_fields,
+                "bc_lines":  bc_lines,
             },
+
             "ocr": {
                 "texte_extrait": ocr["clean_text"],
                 "methode":       ocr["method"],
                 "score_ocr":     ocr["score_ocr"],
                 "nb_mots":       ocr["nb_words"],
             },
+
             "scores": {
                 "score_ocr":            ocr["score_ocr"],
-                "score_extraction":     metadata["score_extraction"],
-                "score_classification": metadata["score_classification"],
+                "score_classification": round(score_classification, 4),
+                "score_extraction":     round(metadata.get("score_extraction", 0.5), 4),
                 "score_global":         score_global,
-                "score_global_pourcent": f"{round(score_global * 100, 2)}%"
+                "score_pourcent":       f"{round(score_global * 100, 2)}%",
+                "breakdown":            validator_result["breakdown"],
             },
-            "validation": validation
+
+            "validation": validation,
+            "flags":      validator_result["flags"],
+            "warnings":   warnings,
         })
+
     finally:
         os.remove(tmp_path)
 
 
-# ── POST /test-classify — OCR + classification seule ─────
-
-@app.post("/test-classify", summary="[TEST] OCR + Classification Groq uniquement")
+# ─────────────────────────────────────────────
+# TEST CLASSIFICATION ONLY
+# ─────────────────────────────────────────────
+@app.post("/test-classify", summary="OCR + Classification uniquement")
 async def test_classify(file: UploadFile = File(...)):
     ext = os.path.splitext(file.filename)[1].lower()
     if ext not in ALLOWED_EXTENSIONS:
-        return JSONResponse(status_code=400, content={"succes": False, "erreur": f"Format non accepté : {ext}"})
+        return JSONResponse(status_code=400, content={
+            "succes": False,
+            "erreur": f"Format non accepté : {ext}"
+        })
 
     tmp_path = _save_temp(file)
     try:
         ocr = extract_text(tmp_path)
         if not ocr["is_readable"]:
-            return JSONResponse(status_code=422, content={"succes": False, "erreur": "Document illisible", "score_ocr": ocr["score_ocr"]})
+            return JSONResponse(status_code=422, content={
+                "succes":    False,
+                "erreur":    "Document illisible",
+                "score_ocr": ocr["score_ocr"]
+            })
 
         classif = classify(ocr["clean_text"])
-        if not classif.get("succes"):
-            return JSONResponse(status_code=500, content={"succes": False, "erreur": classif.get("erreur")})
-
         return JSONResponse(content={
-            "succes": True,
-            "fichier": file.filename,
-            "ocr": {
-                "texte_extrait": ocr["clean_text"],
-                "methode":       ocr["method"],
-                "score_ocr":     ocr["score_ocr"],
-                "nb_mots":       ocr["nb_words"],
-            },
+            "succes":         True,
+            "fichier":        file.filename,
+            "ocr":            ocr,
             "classification": classif["data"]
         })
     finally:
         os.remove(tmp_path)
 
 
-# ── GET /health ───────────────────────────────────────────
-
-@app.get("/health", summary="Health check")
+# ─────────────────────────────────────────────
+# HEALTH / ROOT
+# ─────────────────────────────────────────────
+@app.get("/health")
 def health():
     return {
-        "status": "ok",
-        "version": "3.0",
+        "status":             "ok",
+        "version":            "4.0",
         "llm_classification": "Groq llama-3.3-70b-versatile",
         "llm_extraction":     "Gemini 2.5 Flash",
-        "ocr":                "docTR + pdfplumber"
+        "ocr":                "docTR + pdfplumber",
+        "scoring":            "Validator déterministe + Penalty System V4"
     }
 
 
-# ── GET / ─────────────────────────────────────────────────
-
-@app.get("/", summary="Informations service")
+@app.get("/")
 def root():
     return {
-        "service": "GED OCR Microservice",
-        "version": "3.0",
+        "service":  "GED OCR Microservice",
+        "version":  "4.0",
         "endpoints": {
-            "POST /upload":        "Pipeline complet OCR + LLM",
+            "POST /upload":        "Pipeline complet OCR + LLM + Scoring",
             "POST /test-classify": "OCR + Classification uniquement",
             "GET  /health":        "Health check",
             "GET  /docs":          "Swagger UI"

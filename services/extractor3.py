@@ -20,7 +20,8 @@ RÈGLES ABSOLUES :
 RÈGLE CRITIQUE : DIFFÉRENCIER CLIENT ET FOURNISSEUR
 - FOURNISSEUR (Vendeur) : L'entreprise qui émet le document (en haut, avec logo, téléphone, SIRET).
 - CLIENT (Acheteur) : Le destinataire (souvent sous "Facturé à", "Client", "Bill To").
-
+RÈGLE NUMÉRO DE DOCUMENT :
+- Le numéro de FACTURE se trouve après les mots : FACTURE N°, Invoice No, Fact. N°, N° Fact.
 STRATÉGIE OCR DÉSORDONNÉ :
 - Remplis TOUJOURS le champ "analyse_preliminaire" en premier. Explique brièvement qui est le client, qui est le fournisseur, et comment tu as identifié les colonnes du tableau. Cela t'aidera à ne pas te tromper pour la suite.
 """
@@ -38,7 +39,7 @@ Retourne ce JSON :
 {"analyse_preliminaire": "Texte court expliquant qui est le fournisseur, qui est le client, et l'état du tableau.",
 {
   "bc_fields": {{
-    "vendorInvoiceNumber": "N° facture EXACT ou null",
+    "vendorInvoiceNumber": "N° FACTURE principal (cherche FACTURE N°, Invoice No, N° Fact) ou null",
     "vendorNumber": "N° fournisseur ou null",
     "vendorName": "Nom fournisseur EXACT ou null",
     "invoiceDate": "YYYY-MM-DD ou null",
@@ -74,7 +75,7 @@ Retourne ce JSON :
 {"analyse_preliminaire": "Texte court expliquant qui est le fournisseur, qui est le client, et l'état du tableau.",
 {
   "bc_fields": {{
-    "externalDocumentNumber": "N° document externe ou null",
+    "externalDocumentNumber": "N° FACTURE principal (cherche FACTURE N°, Invoice No, N° Fact) ou null",
     "customerNumber": "N° client ou null",
     "customerName": "Nom EXACT du client ou null",
     "invoiceDate": "YYYY-MM-DD ou null",
@@ -282,6 +283,8 @@ TEXTE DU DOCUMENT :
 ---
 {texte[:7000]}
 ---"""
+#gemini-3-flash-preview
+#gemini-2.5-flash
 
     try:
         response = client.models.generate_content(
